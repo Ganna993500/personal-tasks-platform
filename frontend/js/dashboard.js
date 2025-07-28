@@ -755,14 +755,292 @@ async function editSharedTask(taskId) {
 
 
 
-function loadNotifications() {
-    // TODO: Implement notifications loading
-    console.log('Loading notifications...');
+// Notifications Functions
+async function loadNotifications() {
+    const token = localStorage.getItem('userToken');
+
+    try {
+        showLoading('notificationsContainer');
+
+        const response = await fetch(`${API_BASE_URL}/notifications`, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to load notifications');
+        }
+
+        const notifications = await response.json();
+        renderNotifications(notifications);
+
+    } catch (error) {
+        console.error('Error loading notifications:', error);
+        showError('notificationsContainer', 'Failed to load notifications. Please try again.');
+    }
 }
 
-function loadUsers() {
-    // TODO: Implement users loading (admin only)
-    console.log('Loading users...');
+function renderNotifications(notifications) {
+    const container = $('#notificationsContainer');
+
+    if (notifications.length === 0) {
+        container.html(`
+            <div class="empty-state">
+                <i class="bi bi-bell"></i>
+                <h3>No notifications</h3>
+                <p>You're all caught up! No tasks due soon.</p>
+            </div>
+        `);
+        return;
+    }
+
+    const notificationsHtml = notifications.map(notification => createNotificationHtml(notification)).join('');
+    container.html(`
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h3>Due Soon Notifications</h3>
+            <button class="btn btn-primary" onclick="markAllNotificationsRead()">
+                <i class="bi bi-check-all"></i> Mark All as Read
+            </button>
+        </div>
+        <div class="notifications-list">
+            ${notificationsHtml}
+        </div>
+    `);
+}
+
+function createNotificationHtml(notification) {
+    const dueDate = new Date(notification.due_date).toLocaleDateString();
+    const isOverdue = new Date(notification.due_date) < new Date();
+    const isRead = notification.is_read;
+
+    return `
+        <div class="notification-item ${isRead ? 'read' : 'unread'} border-bottom pb-3 mb-3">
+            <div class="d-flex justify-content-between align-items-start">
+                <div class="flex-grow-1">
+                    <div class="d-flex align-items-center mb-2">
+                        <i class="bi bi-exclamation-triangle text-warning me-2"></i>
+                        <strong>${escapeHtml(notification.message)}</strong>
+                        ${isRead ? '<span class="badge bg-secondary ms-2">Read</span>' : '<span class="badge bg-warning ms-2">New</span>'}
+                    </div>
+                    <div class="d-flex align-items-center text-muted">
+                        <i class="bi bi-calendar me-1"></i>
+                        <span>Due: ${dueDate}</span>
+                        ${isOverdue ? '<span class="text-danger ms-2">(Overdue)</span>' : ''}
+                    </div>
+                </div>
+                <div class="ms-3">
+                    <button class="btn btn-sm btn-outline-primary" onclick="viewTask(${notification.task_id})">
+                        <i class="bi bi-eye"></i> View Task
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+async function markAllNotificationsRead() {
+    const token = localStorage.getItem('userToken');
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/notifications/markread`, {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to mark notifications as read');
+        }
+
+        showSuccess('All notifications marked as read!');
+        loadNotifications(); // Reload to show updated status
+
+    } catch (error) {
+        console.error('Error marking notifications as read:', error);
+        alert('Failed to mark notifications as read. Please try again.');
+    }
+}
+
+function viewTask(taskId) {
+    // Switch to tasks section and highlight the specific task
+    showSection('tasks');
+    // TODO: Could add highlighting or scrolling to the specific task
+    console.log('Viewing task:', taskId);
+}
+
+// Users Management Functions (Admin Only)
+async function loadUsers() {
+    const token = localStorage.getItem('userToken');
+    const userData = JSON.parse(localStorage.getItem('userData') || '{}');
+
+    // Check if user is admin
+    if (userData.role !== 'admin') {
+        $('#usersContainer').html(`
+            <div class="alert alert-warning">
+                <i class="bi bi-exclamation-triangle"></i>
+                <strong>Access Denied</strong>
+                <p>You need admin privileges to access user management.</p>
+            </div>
+        `);
+        return;
+    }
+
+    try {
+        showLoading('usersContainer');
+
+        const response = await fetch(`${API_BASE_URL}/users`, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (!response.ok) {
+            if (response.status === 403) {
+                throw new Error('Access denied. Admin privileges required.');
+            }
+            throw new Error('Failed to load users');
+        }
+
+        const users = await response.json();
+        renderUsers(users);
+
+    } catch (error) {
+        console.error('Error loading users:', error);
+        showError('usersContainer', error.message);
+    }
+}
+
+function renderUsers(users) {
+    const container = $('#usersContainer');
+
+    if (users.length === 0) {
+        container.html(`
+            <div class="empty-state">
+                <i class="bi bi-people"></i>
+                <h3>No users found</h3>
+                <p>There are no users in the system.</p>
+            </div>
+        `);
+        return;
+    }
+
+    const usersHtml = users.map(user => createUserHtml(user)).join('');
+    container.html(`
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h3>User Management</h3>
+            <span class="badge bg-info">${users.length} users</span>
+        </div>
+        <div class="users-list">
+            ${usersHtml}
+        </div>
+    `);
+}
+
+function createUserHtml(user) {
+    const roleBadgeClass = user.role === 'admin' ? 'bg-danger' : 'bg-primary';
+
+    return `
+        <div class="user-item border rounded p-3 mb-3">
+            <div class="d-flex justify-content-between align-items-center">
+                <div class="flex-grow-1">
+                    <div class="d-flex align-items-center mb-2">
+                        <i class="bi bi-person-circle text-primary me-2"></i>
+                        <strong>${escapeHtml(user.username)}</strong>
+                        <span class="badge ${roleBadgeClass} ms-2">${user.role}</span>
+                    </div>
+                    <div class="text-muted">
+                        <i class="bi bi-envelope me-1"></i>
+                        ${escapeHtml(user.email)}
+                    </div>
+                    <div class="text-muted small">
+                        <i class="bi bi-hash me-1"></i>
+                        ID: ${user.id}
+                    </div>
+                </div>
+                <div class="ms-3">
+                    <button class="btn btn-sm btn-outline-primary" onclick="editUserRole(${user.id}, '${user.username}', '${user.role}')">
+                        <i class="bi bi-pencil"></i> Edit Role
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+async function editUserRole(userId, username, currentRole) {
+    const token = localStorage.getItem('userToken');
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/users/${userId}`, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to fetch user data');
+        }
+
+        const userData = await response.json();
+
+        // Populate the edit user modal
+        $('#editUserId').val(userId);
+        $('#editUsername').val(username);
+        $('#editUserEmail').val(userData.email);
+        $('#editUserRole').val(currentRole);
+
+        // Show the modal
+        $('#editUserModal').modal('show');
+
+    } catch (error) {
+        console.error('Error fetching user data:', error);
+        alert('Failed to load user data. Please try again.');
+    }
+}
+
+async function updateUserRole() {
+    const userId = $('#editUserId').val();
+    const username = $('#editUsername').val().trim();
+    const role = $('#editUserRole').val();
+
+    if (!username) {
+        alert('Username cannot be empty');
+        return;
+    }
+
+    const token = localStorage.getItem('userToken');
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/users/${userId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                username: username,
+                email: $('#editUserEmail').val().trim(),
+                role: role
+            })
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.message || 'Failed to update user');
+        }
+
+        const updatedUser = await response.json();
+        $('#editUserModal').modal('hide');
+
+        showSuccess('User role updated successfully!');
+        loadUsers(); // Reload the users list
+
+    } catch (error) {
+        console.error('Error updating user:', error);
+        alert(`Failed to update user: ${error.message}`);
+    }
 }
 
 // Utility functions
