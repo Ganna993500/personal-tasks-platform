@@ -1,4 +1,5 @@
 // Configuration
+console.log('Dashboard JS loaded');
 const API_BASE_URL = 'http://localhost:5000/api';
 
 // Global variables
@@ -61,11 +62,17 @@ function loadUserInfo() {
 
 // Navigation functions
 function showSection(sectionName) {
+    console.log('showSection called with:', sectionName);
+
     // Hide all sections
     $('.content-section').removeClass('active');
+    console.log('All sections hidden');
 
     // Show selected section
-    $(`#${sectionName}Section`).addClass('active');
+    const targetSection = $(`#${sectionName}Section`);
+    console.log('Target section found:', targetSection.length);
+    targetSection.addClass('active');
+    console.log('Target section activated');
 
     // Update navigation
     $('.nav-link').removeClass('active');
@@ -74,15 +81,19 @@ function showSection(sectionName) {
     // Load section-specific data
     switch (sectionName) {
         case 'tasks':
+            console.log('Loading tasks section');
             loadTasks();
             break;
-        case 'shared-tasks':
+        case 'sharedTasks':
+            console.log('Loading shared tasks section');
             loadSharedTasks();
             break;
         case 'notifications':
+            console.log('Loading notifications section');
             loadNotifications();
             break;
         case 'users':
+            console.log('Loading users section');
             loadUsers();
             break;
     }
@@ -169,6 +180,12 @@ function createTaskHtml(task) {
                     <button class="btn btn-sm btn-outline-primary" onclick="editTask(${task.id})">
                         <i class="bi bi-pencil"></i> Edit
                     </button>
+                    <button class="btn btn-sm btn-outline-info" onclick="showComments(${task.id})">
+                        <i class="bi bi-chat-dots"></i> Comments
+                    </button>
+                    <button class="btn btn-sm btn-outline-warning" onclick="showShareTask(${task.id})">
+                        <i class="bi bi-share"></i> Share
+                    </button>
                     <button class="btn btn-sm btn-outline-success" onclick="updateTaskStatus(${task.id}, 'completed')">
                         <i class="bi bi-check-circle"></i> Complete
                     </button>
@@ -185,8 +202,10 @@ function getStatusClass(status) {
     switch (status) {
         case 'completed':
             return 'status-completed';
-        case 'in-progress':
+        case 'in_progress':
             return 'status-in-progress';
+        case 'not_started':
+        case 'pending':
         default:
             return 'status-pending';
     }
@@ -203,6 +222,7 @@ async function createTask() {
     const description = $('#taskDescription').val().trim();
     const dueDate = $('#taskDueDate').val();
     const priority = $('#taskPriority').val();
+    const status = $('#taskStatus').val();
 
     if (!title) {
         alert('Please enter a task title');
@@ -222,7 +242,8 @@ async function createTask() {
                 title,
                 description,
                 due_date: dueDate || null,
-                priority
+                priority,
+                status
             })
         });
 
@@ -348,8 +369,13 @@ async function updateTask() {
 
     const token = localStorage.getItem('userToken');
 
+    // Check if we're currently in the shared tasks section
+    const isSharedTask = $('#sharedTasksSection').hasClass('active');
+
     try {
-        const response = await fetch(`${API_BASE_URL}/tasks/${taskId}`, {
+        const endpoint = isSharedTask ? `${API_BASE_URL}/shared-tasks/${taskId}` : `${API_BASE_URL}/tasks/${taskId}`;
+
+        const response = await fetch(endpoint, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
@@ -365,24 +391,31 @@ async function updateTask() {
         });
 
         if (!response.ok) {
-            throw new Error('Failed to update task');
+            const errorData = await response.json();
+            throw new Error(errorData.message || 'Failed to update task');
         }
 
         const updatedTask = await response.json();
 
-        // Update the task in the local array
-        const taskIndex = tasks.findIndex(t => t.id === parseInt(taskId));
-        if (taskIndex !== -1) {
-            tasks[taskIndex] = updatedTask;
-            renderTasks(tasks);
-        }
-
         $('#editTaskModal').modal('hide');
-        showSuccess('Task updated successfully!');
+
+        if (isSharedTask) {
+            // Reload shared tasks
+            loadSharedTasks();
+            showSuccess('Shared task updated successfully!');
+        } else {
+            // Update the task in the local array
+            const taskIndex = tasks.findIndex(t => t.id === parseInt(taskId));
+            if (taskIndex !== -1) {
+                tasks[taskIndex] = updatedTask;
+                renderTasks(tasks);
+            }
+            showSuccess('Task updated successfully!');
+        }
 
     } catch (error) {
         console.error('Error updating task:', error);
-        alert('Failed to update task. Please try again.');
+        alert(`Failed to update task: ${error.message}`);
     }
 }
 
@@ -421,11 +454,306 @@ function sortTasks() {
     renderTasks(sortedTasks);
 }
 
-// Placeholder functions for other sections
-function loadSharedTasks() {
-    // TODO: Implement shared tasks loading
-    console.log('Loading shared tasks...');
+// Share Task Functions
+function showShareTask(taskId) {
+    $('#shareTaskId').val(taskId);
+    $('#shareTaskForm')[0].reset();
+    $('#shareTaskModal').modal('show');
 }
+
+async function shareTask() {
+    const taskId = $('#shareTaskId').val();
+    const sharedWithId = $('#shareWithUserId').val();
+    const permission = $('#sharePermission').val();
+
+    if (!sharedWithId) {
+        alert('Please enter a user ID');
+        return;
+    }
+
+    const token = localStorage.getItem('userToken');
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/tasks/${taskId}/share`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                sharedWithId: parseInt(sharedWithId),
+                permission
+            })
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.message || 'Failed to share task');
+        }
+
+        $('#shareTaskModal').modal('hide');
+        showSuccess('Task shared successfully!');
+
+    } catch (error) {
+        console.error('Error sharing task:', error);
+        alert(`Failed to share task: ${error.message}`);
+    }
+}
+
+// Comments Functions
+function showComments(taskId) {
+    $('#commentTaskId').val(taskId);
+    $('#commentsModal').modal('show');
+    loadComments(taskId);
+}
+
+async function loadComments(taskId) {
+    const token = localStorage.getItem('userToken');
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/tasks/${taskId}/comments`, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to load comments');
+        }
+
+        const comments = await response.json();
+        renderComments(comments);
+
+    } catch (error) {
+        console.error('Error loading comments:', error);
+        showError('commentsContainer', 'Failed to load comments. Please try again.');
+    }
+}
+
+function renderComments(comments) {
+    const container = $('#commentsContainer');
+
+    if (comments.length === 0) {
+        container.html(`
+            <div class="empty-state">
+                <i class="bi bi-chat-dots"></i>
+                <h3>No comments yet</h3>
+                <p>Be the first to add a comment!</p>
+            </div>
+        `);
+        return;
+    }
+
+    const commentsHtml = comments.map(comment => createCommentHtml(comment)).join('');
+    container.html(`<div class="comments-list">${commentsHtml}</div>`);
+}
+
+function createCommentHtml(comment) {
+    const commentDate = new Date(comment.created_at).toLocaleString();
+
+    return `
+        <div class="comment-item border-bottom pb-3 mb-3">
+            <div class="d-flex justify-content-between align-items-start">
+                <div class="flex-grow-1">
+                    <div class="d-flex align-items-center mb-2">
+                        <i class="bi bi-person-circle me-2"></i>
+                        <strong>${escapeHtml(comment.username)}</strong>
+                        <small class="text-muted ms-2">${commentDate}</small>
+                    </div>
+                    <p class="mb-0">${escapeHtml(comment.comment)}</p>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+async function addComment() {
+    const taskId = $('#commentTaskId').val();
+    const comment = $('#newComment').val().trim();
+
+    if (!comment) {
+        alert('Please enter a comment');
+        return;
+    }
+
+    const token = localStorage.getItem('userToken');
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/tasks/${taskId}/comments`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ comment })
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to add comment');
+        }
+
+        const newComment = await response.json();
+
+        // Reload comments to show the new one
+        loadComments(taskId);
+
+        // Clear the comment input
+        $('#newComment').val('');
+
+        showSuccess('Comment added successfully!');
+
+    } catch (error) {
+        console.error('Error adding comment:', error);
+        alert('Failed to add comment. Please try again.');
+    }
+}
+
+// Shared Tasks Functions
+async function loadSharedTasks() {
+    const token = localStorage.getItem('userToken');
+
+    try {
+        console.log('Showing loading...');
+        showLoading('sharedTasksContainer');
+
+        console.log('Making API call...');
+        const response = await fetch(`${API_BASE_URL}/shared-tasks`, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        console.log('Response received:', response.status);
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Failed to load shared tasks: ${response.status} ${errorText}`);
+        }
+
+        const sharedTasks = await response.json();
+        console.log('Shared tasks data:', sharedTasks);
+        renderSharedTasks(sharedTasks);
+
+    } catch (error) {
+        console.error('Error loading shared tasks:', error);
+        showError('sharedTasksContainer', `Failed to load shared tasks: ${error.message}`);
+    }
+}
+
+function renderSharedTasks(sharedTasks) {
+    console.log('renderSharedTasks called with:', sharedTasks);
+    const container = $('#sharedTasksContainer');
+    console.log('Container found:', container.length);
+
+    if (sharedTasks.length === 0) {
+        console.log('No shared tasks, showing empty state');
+        container.html(`
+            <div class="empty-state">
+                <i class="bi bi-share"></i>
+                <h3>No shared tasks</h3>
+                <p>Tasks shared with you will appear here</p>
+            </div>
+        `);
+        return;
+    }
+
+    console.log('Creating HTML for', sharedTasks.length, 'tasks');
+    const tasksHtml = sharedTasks.map(task => createSharedTaskHtml(task)).join('');
+    console.log('Generated HTML length:', tasksHtml.length);
+    container.html(`<ul class="task-list">${tasksHtml}</ul>`);
+}
+
+function createSharedTaskHtml(task) {
+    const statusClass = getStatusClass(task.status);
+    const dueDate = task.due_date ? new Date(task.due_date).toLocaleDateString() : 'No due date';
+    const isOverdue = task.due_date && new Date(task.due_date) < new Date() && task.status !== 'completed';
+    const permission = task.permission || 'read'; // Default to read if permission is missing
+    const canEdit = permission === 'write';
+
+    return `
+        <li class="task-item ${isOverdue ? 'border-danger' : ''}">
+            <div class="task-header">
+                <h5 class="task-title">${escapeHtml(task.title)}</h5>
+                <div class="d-flex align-items-center gap-2">
+                    <span class="task-status ${statusClass}">${task.status || 'pending'}</span>
+                    <span class="badge bg-info">${permission} access</span>
+                </div>
+            </div>
+            ${task.description ? `<p class="task-description">${escapeHtml(task.description)}</p>` : ''}
+            <div class="task-meta">
+                <div class="task-due-date">
+                    <i class="bi bi-calendar"></i>
+                    ${dueDate}
+                    ${isOverdue ? '<span class="text-danger ms-2">(Overdue)</span>' : ''}
+                </div>
+                <div class="task-actions">
+                    <button class="btn btn-sm btn-outline-info" onclick="showComments(${task.id})">
+                        <i class="bi bi-chat-dots"></i> Comments
+                    </button>${canEdit ? `<button class="btn btn-sm btn-outline-primary" onclick="editSharedTask(${task.id})">
+                        <i class="bi bi-pencil"></i> Edit
+                    </button>` : ''}
+                </div>
+            </div>
+        </li>
+    `;
+}
+
+async function editSharedTask(taskId) {
+    const token = localStorage.getItem('userToken');
+
+    try {
+        // Fetch the shared task data from the backend
+        const response = await fetch(`${API_BASE_URL}/shared-tasks/${taskId}`, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to fetch shared task');
+        }
+
+        const task = await response.json();
+
+        if (!task) {
+            alert('Task not found');
+            return;
+        }
+
+        if (task.permission !== 'write') {
+            alert('You do not have permission to edit this task');
+            return;
+        }
+
+        // Populate the edit form with task data
+        $('#editTaskId').val(task.id);
+        $('#editTaskTitle').val(task.title);
+        $('#editTaskDescription').val(task.description || '');
+
+        // Format due date for datetime-local input
+        if (task.due_date) {
+            const dueDate = new Date(task.due_date);
+            const formattedDate = dueDate.toISOString().slice(0, 16);
+            $('#editTaskDueDate').val(formattedDate);
+        } else {
+            $('#editTaskDueDate').val('');
+        }
+
+        $('#editTaskPriority').val(task.priority || 'medium');
+        $('#editTaskStatus').val(task.status || 'pending');
+
+        // Show the edit modal
+        $('#editTaskModal').modal('show');
+
+    } catch (error) {
+        console.error('Error fetching shared task:', error);
+        alert('Failed to load task data. Please try again.');
+    }
+}
+
+
+
+
 
 function loadNotifications() {
     // TODO: Implement notifications loading

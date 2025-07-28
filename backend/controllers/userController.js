@@ -2,9 +2,7 @@ const userModel = require('../models/userModel');
 
 const getAllUsers = async (req, res) => {
     try {
-        /*if (req.user.role !== 'admin') {
-            return res.status(403).json({ message: 'Unauthorized' });
-        }*/
+
         const users = await userModel.getAllUsers();
         res.status(200).json(users);
     } catch (error) {
@@ -15,9 +13,6 @@ const getAllUsers = async (req, res) => {
 const getUserProfile = async (req, res) => {
     try {
         const id = parseInt(req.params.id);
-        if (id != req.user.userId && req.user.role !== 'admin') {
-            return res.status(403).json({ message: 'Unauthorized' });
-        }
         const user = await userModel.getUserById(id);
         if (!user) {
             return res.status(404).json({ message: 'User not found' });
