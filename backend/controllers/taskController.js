@@ -36,6 +36,7 @@ const createTask = async (req, res) => {
 const updateTask = async (req, res) => {
     try {
         const taskId = parseInt(req.params.id);
+        console.log(req.body);
         const task = await taskModel.updateTask(taskId, req.body, req.user.userId);
 
         if (!task) {
@@ -65,8 +66,11 @@ const deleteTask = async (req, res) => {
 
 const updateTaskStatus = async (req, res) => {
     try {
+        console.log('here');
         const taskId = parseInt(req.params.id);
+        console.log(taskId);
         const { status } = req.body;
+        console.log(status);
         const task = await taskModel.updateTaskStatus(taskId, status, req.user.userId);
 
         if (!task) {
